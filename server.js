@@ -39,7 +39,13 @@ const openai = new OpenAI({
 
 let previousPair = null;
 
+
+app.get('/', (req, res) => {
+  res.send('Server is working');
+});
+
 app.post('/analyze', upload.single('image'), async (req, res) => {
+  console.log(`📩 Received request: ${req.method} ${req.originalUrl}`);
   try {
     const imagePath = req.file.path;
     const imageData = fs.readFileSync(imagePath).toString('base64');
@@ -306,9 +312,11 @@ app.get('/me', (req, res) => {
   res.json({ verified: verifiedEmails.has(email) });
 });
 
-
+app.get('/analyze', (req, res) => {
+  res.status(405).send('❌ Use POST method instead of GET');
+});
 
 const PORT = 3001;
-app.listen(PORT, () => {
-  console.log(`🚀 CandleLens backend running on http://localhost:${PORT}`);
+app.listen(3001, '0.0.0.0', () => {
+  console.log('Server is running on http://192.168.1.171:3001');
 });
