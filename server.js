@@ -95,9 +95,9 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
 
 🎯 Confidence Guidelines:
 - Return a confidence level as a percentage: **Confidence Level:** 0% to 100%
-- Base your estimate on how aligned the indicators are, how clear the price action is, and whether the chart is readable.
-- Use low confidence (<50%) if indicators conflict or patterns are weak.
-- Use high confidence (80-100%) only if the setup is very clear and indicators align perfectly.
+- Be precise. Do NOT round. Avoid clean numbers like 70%, 75%, or 80% unless truly exact.
+- You may return values like 63%, 78%, or 91% if that's what your analysis supports.
+- Base your estimate on how aligned the indicators are, the strength of the setup, and the chart readability.
 
 
     🧠 **Bias Explanation:** The chart is forming higher highs with consistent volume support and moving average crossovers.
