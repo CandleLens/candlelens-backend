@@ -3,14 +3,38 @@ const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs');
+const path = require('path'); // ⬅️ move this UP
 const { OpenAI } = require('openai');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
-const app = express();  // ✅ correct
+const app = express();
 const upload = multer({ dest: 'uploads/' });
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-const path = require('path');
 const USERS_FILE = path.join(__dirname, 'users.json');
+const CANCELS_FILE = path.join(__dirname, 'cancel_requests.json'); // ✅ now works fine
+
+const TERMS_FILE = path.join(__dirname, 'terms_accepted.json'); // ✅ for tracking terms
+
+function saveTermsAccepted(email) {
+  let accepted = [];
+  if (fs.existsSync(TERMS_FILE)) {
+    try {
+      accepted = JSON.parse(fs.readFileSync(TERMS_FILE, 'utf-8'));
+    } catch (err) {
+      console.error('⚠️ Failed to parse terms_accepted.json:', err);
+    }
+  }
+
+  if (!accepted.includes(email)) {
+    accepted.push(email);
+    fs.writeFileSync(TERMS_FILE, JSON.stringify(accepted, null, 2));
+    console.log(`📜 Terms accepted by: ${email}`);
+  }
+}
+
+
+
 
 function saveVerifiedEmail(email) {
   let users = [];
@@ -29,9 +53,97 @@ function saveVerifiedEmail(email) {
 }
 
 
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+
+app.post('/accept-terms', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email required' });
+
+  saveTermsAccepted(email);
+  res.json({ success: true });
+});
+
+app.get('/has-accepted-terms', (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ error: 'Email required' });
+
+  let accepted = [];
+  if (fs.existsSync(TERMS_FILE)) {
+    try {
+      accepted = JSON.parse(fs.readFileSync(TERMS_FILE, 'utf-8'));
+    } catch (err) {
+      console.error('⚠️ Failed to parse terms_accepted.json:', err);
+    }
+  }
+
+  res.json({ accepted: accepted.includes(email) });
+});
+
+
+app.post('/create-checkout-session', async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [
+        {
+          price: 'price_1ROMf5LIT003sli4Ek2kMRbS', // ⬅️ Your actual Price ID
+          quantity: 1,
+        },
+      ],
+      success_url: 'https://candlelens.com/success',
+      cancel_url: 'https://candlelens.com/cancel',
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('❌ Stripe session error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/cancel-subscription', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  let cancels = [];
+  if (fs.existsSync(CANCELS_FILE)) {
+    try {
+      cancels = JSON.parse(fs.readFileSync(CANCELS_FILE, 'utf-8'));
+    } catch (err) {
+      console.error('⚠️ Failed to parse cancel_requests.json:', err);
+    }
+  }
+
+  if (!cancels.includes(email)) {
+    cancels.push(email);
+    fs.writeFileSync(CANCELS_FILE, JSON.stringify(cancels, null, 2));
+    console.log(`📩 Cancellation recorded for: ${email}`);
+  }
+
+  // ✅ Send an email notification to yourself
+  try {
+    await resend.emails.send({
+      from: 'cancel@candlelens.com',
+      to: 'CandleLensApp@gmail.com',
+      subject: '🛑 Cancellation Requested',
+      html: `<p>User <strong>${email}</strong> has requested to cancel their subscription.</p>`,
+    });
+    console.log('📧 Notification email sent to CandleLensApp@gmail.com');
+  } catch (err) {
+    console.error('❌ Failed to send cancellation email:', err);
+  }
+
+  res.json({ success: true });
+});
+
+ 
+
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -92,7 +204,7 @@ app.post('/analyze', upload.single('image'), async (req, res) => {
     **Market Sentiment:** Bullish  
 **Confidence Level:** [Give a realistic confidence estimate as a percentage from 0% to 100%. Be bold when signals align and strong patterns are visible. Use <30% if conditions are confusing or conflicting. Only assign 90%+ when the chart setup is extremely clear, with strong confluence across multiple indicators and price structure.]
 
-
+now i
 🎯 Confidence Guidelines:
 - Return a confidence level as a percentage: **Confidence Level:** 0% to 100%
 - Be precise. Do NOT round. Avoid clean numbers like 70%, 75%, or 80% unless truly exact.
