@@ -1,5 +1,10 @@
 require('dotenv').config();
 const express = require('express');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+console.log('✅ Using Webhook Secret:', process.env.STRIPE_WEBHOOK_SECRET);
+
+
 const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs');
@@ -8,8 +13,75 @@ const { OpenAI } = require('openai');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const app = express();
+
+
+app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    console.log('📬 Webhook received:', event.type);
+  } catch (err) {
+    console.error('❌ Invalid Stripe webhook signature:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    console.log('🔍 Full session:', JSON.stringify(session, null, 2));
+
+    let email = session.customer_email || session.metadata?.email || session.customer_details?.email;
+
+    if (!email && session.customer) {
+      try {
+        const customer = await stripe.customers.retrieve(session.customer);
+        email = customer.email;
+        console.log('📥 Retrieved customer email from customer object:', email);
+      } catch (err) {
+        console.error('❌ Failed to retrieve customer from Stripe:', err.message);
+      }
+    }
+    
+    if (!email) {
+      console.warn('⚠️ No email found in session or customer object');
+      console.warn('ℹ️ Full session for debugging:', JSON.stringify(session, null, 2));
+      return res.status(400).send('Missing email');
+    }
+    
+    
+
+    let users = [];
+
+    if (fs.existsSync(USERS_FILE)) {
+      try {
+        users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+      } catch (err) {
+        console.error('⚠️ Failed to read users.json:', err);
+      }
+    }
+
+    const user = users.find(u => u.email === email);
+    if (user) {
+      user.subscribed = true;
+    } else {
+      users.push({ email, subscribed: true });
+    }
+
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    console.log(`✅ Updated subscription for: ${email}`);
+  }
+
+  res.json({ received: true });
+});
+
+
+app.use(express.json());
+app.use(cors());
+app.use(express.urlencoded({ extended: true }));
+
+
 const upload = multer({ dest: 'uploads/' });
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const USERS_FILE = path.join(__dirname, 'users.json');
 const CANCELS_FILE = path.join(__dirname, 'cancel_requests.json'); // ✅ now works fine
@@ -45,8 +117,10 @@ function saveVerifiedEmail(email) {
       console.error('⚠️ Failed to parse users.json:', err);
     }
   }
-  if (!users.includes(email)) {
-    users.push(email);
+
+  const exists = users.find(u => u.email === email);
+  if (!exists) {
+    users.push({ email, subscribed: false });
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
     console.log(`✅ Saved verified email: ${email}`);
   }
@@ -54,9 +128,7 @@ function saveVerifiedEmail(email) {
 
 
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
 
 
 app.post('/accept-terms', (req, res) => {
@@ -85,26 +157,35 @@ app.get('/has-accepted-terms', (req, res) => {
 
 
 app.post('/create-checkout-session', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'subscription',
+      customer_email: email,
       line_items: [
         {
-          price: 'price_1ROMf5LIT003sli4Ek2kMRbS', // ⬅️ Your actual Price ID
+          price: 'price_1ROl8RLIT003sli4gEg7gv9Y',
           quantity: 1,
         },
       ],
-      success_url: 'https://candlelens.com/success',
-      cancel_url: 'https://candlelens.com/cancel',
+      success_url: 'https://5354-2600-4040-95b2-ba00-4df0-aa76-eaf8-118c.ngrok-free.app/success',
+      cancel_url: 'https://5354-2600-4040-95b2-ba00-4df0-aa76-eaf8-118c.ngrok-free.app/cancel',
+      metadata: { email },
     });
 
+    console.log('✅ Created Stripe session:', session.url);
     res.json({ url: session.url });
+
   } catch (err) {
     console.error('❌ Stripe session error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to create Stripe session' });
   }
 });
+
+
 
 app.post('/cancel-subscription', async (req, res) => {
   const { email } = req.body;
@@ -143,7 +224,9 @@ app.post('/cancel-subscription', async (req, res) => {
 
  
 
+// ✅ Stripe Webhook
 
+ 
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -377,7 +460,7 @@ const loginCodes = {};
 const verifiedEmails = new Set();
 
 app.post('/send-code', async (req, res) => {
-  const { email } = req.body;
+  const email = req.body?.email;
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
   const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -421,12 +504,41 @@ app.post('/verify-code', (req, res) => {
 
 app.get('/me', (req, res) => {
   const { email } = req.query;
-  res.json({ verified: verifiedEmails.has(email) });
+
+  const isVerified = verifiedEmails.has(email);
+
+  let users = [];
+  if (fs.existsSync(USERS_FILE)) {
+    try {
+      users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    } catch (err) {
+      console.error('⚠️ Failed to read users.json:', err);
+    }
+  }
+
+  const user = users.find(u => u.email === email);
+  const isSubscribed = user?.subscribed || false;
+
+  res.json({
+    verified: isVerified,
+    subscribed: isSubscribed,
+  });
 });
+
 
 app.get('/analyze', (req, res) => {
   res.status(405).send('❌ Use POST method instead of GET');
 });
+
+
+app.get('/success', (req, res) => {
+  res.send('✅ Subscription successful. You may close this tab.');
+});
+
+app.get('/cancel', (req, res) => {
+  res.send('❌ Subscription canceled. You may close this tab.');
+});
+
 
 const PORT = 3001;
 app.listen(3001, '0.0.0.0', () => {
