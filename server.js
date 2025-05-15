@@ -27,53 +27,47 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    console.log('🔍 Full session:', JSON.stringify(session, null, 2));
 
-    let email = session.customer_email || session.metadata?.email || session.customer_details?.email;
+if (event.type === 'checkout.session.completed') {
+  const session = event.data.object;
+  console.log('🔍 Full session:', JSON.stringify(session, null, 2));
 
-    if (!email && session.customer) {
-      try {
-        const customer = await stripe.customers.retrieve(session.customer);
-        email = customer.email;
-        console.log('📥 Retrieved customer email from customer object:', email);
-      } catch (err) {
-        console.error('❌ Failed to retrieve customer from Stripe:', err.message);
-      }
+  let email = session.customer_email || session.metadata?.email || session.customer_details?.email;
+
+  if (!email && session.customer) {
+    try {
+      const customer = await stripe.customers.retrieve(session.customer);
+      email = customer.email;
+      console.log('📥 Retrieved customer email from customer object:', email);
+    } catch (err) {
+      console.error('❌ Failed to retrieve customer from Stripe:', err.message);
     }
-    
-    if (!email) {
-      console.warn('⚠️ No email found in session or customer object');
-      console.warn('ℹ️ Full session for debugging:', JSON.stringify(session, null, 2));
-      return res.status(400).send('Missing email');
+  }
+
+  if (!email) {
+    console.warn('⚠️ No email found in session or customer object');
+    return res.status(400).send('Missing email');
+  }
+
+  // ✅ Add to subscribers.json
+  let subscribers = [];
+  if (fs.existsSync(SUBSCRIBERS_FILE)) {
+    try {
+      subscribers = JSON.parse(fs.readFileSync(SUBSCRIBERS_FILE, 'utf-8'));
+    } catch (err) {
+      console.error('⚠️ Failed to read subscribers.json:', err);
     }
-    
-    
+  }
 
-    let users = [];
-
-    if (fs.existsSync(USERS_FILE)) {
-      try {
-        users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
-      } catch (err) {
-        console.error('⚠️ Failed to read users.json:', err);
-      }
-    }
-
-    const user = users.find(u => u.email === email);
-    if (user) {
-      user.subscribed = true;
-    } else {
-      users.push({ email, subscribed: true });
-    }
-
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-    console.log(`✅ Updated subscription for: ${email}`);
+  if (!subscribers.includes(email)) {
+    subscribers.push(email);
+    fs.writeFileSync(SUBSCRIBERS_FILE, JSON.stringify(subscribers, null, 2));
+    console.log(`✅ Added to subscribers: ${email}`);
   }
 
   res.json({ received: true });
-});
+}
+}); 
 
 
 app.use(express.json());
@@ -85,8 +79,10 @@ const upload = multer({ dest: 'uploads/' });
 
 const USERS_FILE = path.join(__dirname, 'users.json');
 const CANCELS_FILE = path.join(__dirname, 'cancel_requests.json'); // ✅ now works fine
-
+const SUBSCRIBERS_FILE = path.join(__dirname, 'subscribers.json'); // ✅ MOVE IT HERE
 const TERMS_FILE = path.join(__dirname, 'terms_accepted.json'); // ✅ for tracking terms
+
+
 
 function saveTermsAccepted(email) {
   let accepted = [];
@@ -118,13 +114,13 @@ function saveVerifiedEmail(email) {
     }
   }
 
-  const exists = users.find(u => u.email === email);
-  if (!exists) {
-    users.push({ email, subscribed: false });
+  if (!users.includes(email)) {
+    users.push(email);
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
     console.log(`✅ Saved verified email: ${email}`);
   }
 }
+
 
 
 
@@ -507,23 +503,22 @@ app.get('/me', (req, res) => {
 
   const isVerified = verifiedEmails.has(email);
 
-  let users = [];
-  if (fs.existsSync(USERS_FILE)) {
+  let subscribed = false;
+  if (fs.existsSync(SUBSCRIBERS_FILE)) {
     try {
-      users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+      const subscribers = JSON.parse(fs.readFileSync(SUBSCRIBERS_FILE, 'utf-8'));
+      subscribed = subscribers.includes(email);
     } catch (err) {
-      console.error('⚠️ Failed to read users.json:', err);
+      console.error('⚠️ Failed to read subscribers.json:', err);
     }
   }
 
-  const user = users.find(u => u.email === email);
-  const isSubscribed = user?.subscribed || false;
-
   res.json({
     verified: isVerified,
-    subscribed: isSubscribed,
+    subscribed: subscribed,
   });
 });
+
 
 
 app.get('/analyze', (req, res) => {
