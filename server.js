@@ -82,27 +82,22 @@ const CANCELS_FILE = path.join(__dirname, 'cancel_requests.json'); // ✅ now wo
 const SUBSCRIBERS_FILE = path.join(__dirname, 'subscribers.json'); // ✅ MOVE IT HERE
 const TERMS_FILE = path.join(__dirname, 'terms_accepted.json'); // ✅ for tracking terms
 
-
-
 function saveTermsAccepted(email) {
   let accepted = [];
   if (fs.existsSync(TERMS_FILE)) {
     try {
       accepted = JSON.parse(fs.readFileSync(TERMS_FILE, 'utf-8'));
     } catch (err) {
-      console.error('⚠️ Failed to parse terms_accepted.json:', err);
+      // console.error('⚠️ Failed to parse terms_accepted.json:', err);
     }
   }
 
   if (!accepted.includes(email)) {
     accepted.push(email);
     fs.writeFileSync(TERMS_FILE, JSON.stringify(accepted, null, 2));
-    console.log(`📜 Terms accepted by: ${email}`);
+    // console.log(`📜 Terms accepted by: ${email}`);
   }
 }
-
-
-
 
 function saveVerifiedEmail(email) {
   let users = [];
@@ -120,12 +115,6 @@ function saveVerifiedEmail(email) {
     console.log(`✅ Saved verified email: ${email}`);
   }
 }
-
-
-
-
-
-
 
 app.post('/accept-terms', (req, res) => {
   const { email } = req.body;
