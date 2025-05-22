@@ -156,8 +156,8 @@ app.post('/create-checkout-session', async (req, res) => {
           quantity: 1,
         },
       ],
-      success_url: 'https://5354-2600-4040-95b2-ba00-4df0-aa76-eaf8-118c.ngrok-free.app/success',
-      cancel_url: 'https://5354-2600-4040-95b2-ba00-4df0-aa76-eaf8-118c.ngrok-free.app/cancel',
+      success_url: 'https://candlelens-backend.onrender.com/success',
+      cancel_url: 'https://candlelens-backend.onrender.com/cancel',      
       metadata: { email },
     });
 
@@ -524,7 +524,7 @@ app.get('/cancel', (req, res) => {
 });
 
 
-const PORT = 3001;
-app.listen(3001, '0.0.0.0', () => {
-  console.log('Server is running on http://192.168.1.171:3001');
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`🌐 Server is running on port ${PORT}`);
 });
