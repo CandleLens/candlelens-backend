@@ -14,6 +14,12 @@ const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const app = express();
 
+const USERS_FILE = path.join(__dirname, 'users.json');
+const CANCELS_FILE = path.join(__dirname, 'cancel_requests.json'); // ✅ now works fine
+const SUBSCRIBERS_FILE = path.join(__dirname, 'subscribers.json'); // ✅ MOVE IT HERE
+const TERMS_FILE = path.join(__dirname, 'terms_accepted.json'); // ✅ for tracking terms
+
+
 
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -77,10 +83,6 @@ app.use(express.urlencoded({ extended: true }));
 
 const upload = multer({ dest: 'uploads/' });
 
-const USERS_FILE = path.join(__dirname, 'users.json');
-const CANCELS_FILE = path.join(__dirname, 'cancel_requests.json'); // ✅ now works fine
-const SUBSCRIBERS_FILE = path.join(__dirname, 'subscribers.json'); // ✅ MOVE IT HERE
-const TERMS_FILE = path.join(__dirname, 'terms_accepted.json'); // ✅ for tracking terms
 
 function saveTermsAccepted(email) {
   let accepted = [];
